@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include "afl-annotations.h"
+
 volatile int *ptr = NULL;
 const char cmd[] = "NULL";
 
@@ -7,6 +9,8 @@ const char cmd[] = "NULL";
 
 int main(int argc, char *argv[]) {
     char buf[16];
+
+    RUN_FORKSERVER();
 
     fgets(buf, sizeof buf, stdin);
 
