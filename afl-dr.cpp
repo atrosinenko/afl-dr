@@ -24,6 +24,10 @@ static droption_t<bool> opt_private_fork(DROPTION_SCOPE_CLIENT, "private-fork", 
                                          "Use fork function from the private libc",
                                          "Use fork function from the private libc");
 
+static droption_t<bool> opt_instrument_everything(DROPTION_SCOPE_CLIENT, "instrument-everything", false,
+                                                  "Instrument everything",
+                                                  "Instrument all executable code instead of just the main module");
+
 static void parse_options(int argc, const char *argv[]) {
     std::string parse_err;
     if (!droption_parser_t::parse_argv(DROPTION_SCOPE_CLIENT, argc, argv, &parse_err, NULL)) {
@@ -137,9 +141,15 @@ static void event_exit() {
     }
 }
 
+module_data_t *main_module;
+
 static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                                          bool for_trace, bool translating) {
     app_pc pc = dr_fragment_app_pc(tag);
+
+    if (!opt_instrument_everything.get_value() && !dr_module_contains_addr(main_module, pc)) {
+        return DR_EMIT_DEFAULT;
+    }
 
     uint32_t cur_location = (((uint32_t)(uintptr_t)pc) * (uint32_t)33533) & 0xFFFF;
     instr_t *where = instrlist_first(bb);
@@ -179,6 +189,8 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
 
 DR_EXPORT void dr_client_main(client_id_t id, int argc, const char *argv[]) {
     parse_options(argc, argv);
+
+    main_module = dr_get_main_module();
 
     if (init_shmem(true)) {
         lock = dr_mutex_create();
