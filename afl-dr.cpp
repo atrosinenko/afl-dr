@@ -161,7 +161,14 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
     dr_save_reg(drcontext, bb, where, tls_reg, SPILL_SLOT_2);
     dr_save_reg(drcontext, bb, where, offset_reg, SPILL_SLOT_3);
 
-    dr_insert_read_tls_field(drcontext, bb, where, tls_reg);
+    if (dr_using_all_private_caches()) {
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_mov_imm(drcontext,
+                                 opnd_create_reg(tls_reg),
+                                 OPND_CREATE_INTPTR(dr_get_tls_field(drcontext))));
+    } else {
+        dr_insert_read_tls_field(drcontext, bb, where, tls_reg);
+    }
 
     instrlist_meta_preinsert(bb, where,
         XINST_CREATE_load(drcontext,
