@@ -11,6 +11,10 @@ static droption_t<bool> opt_instrument_everything(DROPTION_SCOPE_CLIENT, "instru
                                                   "Instrument everything",
                                                   "Instrument all executable code instead of just the main module");
 
+static droption_t<bool> opt_stack_spill(DROPTION_SCOPE_CLIENT, "stack-spill", false,
+                                        "Spill registers on stack",
+                                        "Spill registers on stack instead of DR's SPILL_SLOTs");
+
 static void parse_options(int argc, const char *argv[]) {
     std::string parse_err;
     if (!droption_parser_t::parse_argv(DROPTION_SCOPE_CLIENT, argc, argv, &parse_err, NULL)) {
@@ -87,12 +91,24 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
     uint32_t cur_location = (((uint32_t)(uintptr_t)pc) * (uint32_t)33533) & 0xFFFF;
     instr_t *where = instrlist_first(bb);
 
-    dr_save_arith_flags(drcontext, bb, where, SPILL_SLOT_1);
+    reg_id_t tls_reg = DR_REG_XDI, offset_reg = DR_REG_XDX, arith_reg = DR_REG_XAX;
 
-    reg_id_t tls_reg = DR_REG_XDI, offset_reg = DR_REG_XDX;
-
-    dr_save_reg(drcontext, bb, where, tls_reg, SPILL_SLOT_2);
-    dr_save_reg(drcontext, bb, where, offset_reg, SPILL_SLOT_3);
+    if (opt_stack_spill.get_value()) {
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_push(drcontext,
+                              opnd_create_reg(tls_reg)));
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_push(drcontext,
+                              opnd_create_reg(offset_reg)));
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_push(drcontext,
+                              opnd_create_reg(arith_reg)));
+    } else {
+        dr_save_reg(drcontext, bb, where, arith_reg, SPILL_SLOT_1);
+        dr_save_reg(drcontext, bb, where, tls_reg, SPILL_SLOT_2);
+        dr_save_reg(drcontext, bb, where, offset_reg, SPILL_SLOT_3);
+    }
+    dr_save_arith_flags_to_xax(drcontext, bb, where);
 
     if (dr_using_all_private_caches()) {
         instrlist_meta_preinsert(bb, where,
@@ -119,10 +135,22 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
         INSTR_CREATE_inc(drcontext,
                          opnd_create_base_disp(tls_reg, offset_reg, 1, offsetof(thread_data, map), OPSZ_1)));
 
-    dr_restore_reg(drcontext, bb, where, offset_reg, SPILL_SLOT_3);
-    dr_restore_reg(drcontext, bb, where, tls_reg, SPILL_SLOT_2);
-
-    dr_restore_arith_flags(drcontext, bb, where, SPILL_SLOT_1);
+    dr_restore_arith_flags_from_xax(drcontext, bb, where);
+    if (opt_stack_spill.get_value()) {
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_pop(drcontext,
+                             opnd_create_reg(arith_reg)));
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_pop(drcontext,
+                             opnd_create_reg(offset_reg)));
+        instrlist_meta_preinsert(bb, where,
+            INSTR_CREATE_pop(drcontext,
+                             opnd_create_reg(tls_reg)));
+    } else {
+        dr_restore_reg(drcontext, bb, where, offset_reg, SPILL_SLOT_3);
+        dr_restore_reg(drcontext, bb, where, tls_reg, SPILL_SLOT_2);
+        dr_restore_reg(drcontext, bb, where, arith_reg, SPILL_SLOT_1);
+    }
 
     return DR_EMIT_DEFAULT;
 }
