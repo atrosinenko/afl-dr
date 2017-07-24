@@ -76,6 +76,10 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
                                          bool for_trace, bool translating) {
     app_pc pc = dr_fragment_app_pc(tag);
 
+    if (!translating) {
+        trace_bb_instrumentation(pc, for_trace);
+    }
+
     if (!opt_instrument_everything.get_value() && !dr_module_contains_addr(main_module, pc)) {
         return DR_EMIT_DEFAULT;
     }

@@ -10,5 +10,6 @@
     }
 
 void start_forkserver(void);
+void trace_bb_instrumentation(app_pc pc, bool for_trace);
 
 #endif

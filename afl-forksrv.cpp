@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 #include <droption.h>
 
@@ -15,6 +16,14 @@ typedef int (*fork_fun_t)();
 static droption_t<bool> opt_private_fork(DROPTION_SCOPE_CLIENT, "private-fork", false,
                                          "Use fork function from the private libc",
                                          "Use fork function from the private libc");
+
+#ifdef BB_PREPOPULATE
+static droption_t<bool> opt_disable_prepop(DROPTION_SCOPE_CLIENT, "no-prepop", false,
+                                           "Disable basic block cache prepopulation",
+                                           "Disable qemu_mode-like prepopulation of basic block cache in the parent forkserver process");
+
+static int prepop_fd = -1;
+#endif
 
 void start_forkserver() {
     // For references, see https://lcamtuf.blogspot.ru/2014/10/fuzzing-binaries-without-execve.html
@@ -52,12 +61,44 @@ void start_forkserver() {
         fork_ptr = fork;
     }
 
+#ifdef BB_PREPOPULATE
+    int prepop_pipe[2];
+    if (!opt_disable_prepop.get_value()) {
+        EXIT_IF_FAILED(pipe2(prepop_pipe, O_NONBLOCK) == 0, "Cannot create the bb-prepop pipe.\n", 1);
+    }
+#endif
+
     while (true) {
+#ifdef BB_PREPOPULATE
+        // Pretranslate basic blocks inside the parent forkserver process,
+        // like qemu_mode already does.
+        if (!opt_disable_prepop.get_value()) {
+            app_pc pcs[500];
+            while (true) {
+                int res = read(prepop_pipe[0], pcs, sizeof(pcs));
+                if (res <= 0)
+                    break;
+
+                // At the time of writing, this is kind of API abuse, see:
+                // https://github.com/DynamoRIO/dynamorio/issues/2463
+                // https://github.com/DynamoRIO/dynamorio/pull/2505
+                void *drcontext = dr_get_current_drcontext(); // Save before dr_prepopulate_cache()
+                dr_prepopulate_cache(pcs, res / sizeof(pcs[0]));
+                dr_switch_to_dr_state_ex(drcontext, DR_STATE_GO_NATIVE);
+            }
+        }
+#endif
         EXIT_IF_FAILED(read(FROM_FUZZER_FD, &was_killed, 4) == 4, "Incorrect spawn command from fuzzer.\n", 1)
         int child_pid = fork_ptr();
         EXIT_IF_FAILED(child_pid >= 0, "Cannot fork.\n", 1)
 
         if (child_pid == 0) {
+#ifdef BB_PREPOPULATE
+            if (!opt_disable_prepop.get_value()) {
+                close(prepop_pipe[0]);
+                prepop_fd = prepop_pipe[1];
+            }
+#endif
             close(TO_FUZZER_FD);
             close(FROM_FUZZER_FD);
             return;
@@ -68,4 +109,12 @@ void start_forkserver() {
             EXIT_IF_FAILED(write(TO_FUZZER_FD, &status, 4) == 4,    "Cannot write child exit status.\n", 1)
         }
     }
+}
+
+void trace_bb_instrumentation(app_pc pc, bool for_trace) {
+#ifdef BB_PREPOPULATE
+    if (!for_trace && prepop_fd > 0) {
+        EXIT_IF_FAILED(write(prepop_fd, &pc, sizeof(pc)) == sizeof(pc), "Cannot write pc for prepop.\n", 1);
+    }
+#endif
 }

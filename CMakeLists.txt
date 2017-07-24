@@ -22,6 +22,11 @@ if (NOT DynamoRIO_FOUND)
 endif(NOT DynamoRIO_FOUND)
 configure_DynamoRIO_client(afl-dr)
 
+option(BB_PREPOPULATE "Enable basic block prepopulation in the parent forkserver process" ON)
+if (BB_PREPOPULATE)
+    add_definitions(-DBB_PREPOPULATE)
+endif(BB_PREPOPULATE)
+
 # The droption extension seems not to be available through this command,
 # so using this kludge to add the include path
 use_DynamoRIO_extension(afl-dr drutil)
