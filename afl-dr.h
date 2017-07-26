@@ -12,4 +12,7 @@
 void start_forkserver(void);
 void trace_bb_instrumentation(app_pc pc, bool for_trace);
 
+bool need_instrument_pc(app_pc pc);
+void init_module_filter(void);
+
 #endif

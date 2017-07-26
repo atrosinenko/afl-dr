@@ -7,10 +7,6 @@
 #include "afl-annotations.h"
 #include "afl-dr.h"
 
-static droption_t<bool> opt_instrument_everything(DROPTION_SCOPE_CLIENT, "instrument-everything", false,
-                                                  "Instrument everything",
-                                                  "Instrument all executable code instead of just the main module");
-
 static droption_t<bool> opt_stack_spill(DROPTION_SCOPE_CLIENT, "stack-spill", false,
                                         "Spill registers on stack",
                                         "Spill registers on stack instead of DR's SPILL_SLOTs");
@@ -74,8 +70,6 @@ static void event_exit() {
     }
 }
 
-module_data_t *main_module;
-
 static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                                          bool for_trace, bool translating) {
     app_pc pc = dr_fragment_app_pc(tag);
@@ -84,7 +78,7 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
         trace_bb_instrumentation(pc, for_trace);
     }
 
-    if (!opt_instrument_everything.get_value() && !dr_module_contains_addr(main_module, pc)) {
+    if (!need_instrument_pc(pc)) {
         return DR_EMIT_DEFAULT;
     }
 
@@ -158,7 +152,7 @@ static dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t
 DR_EXPORT void dr_client_main(client_id_t id, int argc, const char *argv[]) {
     parse_options(argc, argv);
 
-    main_module = dr_get_main_module();
+    init_module_filter();
 
     if (init_shmem(true)) {
         lock = dr_mutex_create();

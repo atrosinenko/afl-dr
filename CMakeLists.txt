@@ -15,7 +15,7 @@ target_link_libraries(example-bug      afl-annotations)
 target_link_libraries(example-bug-libc afl-annotations)
 
 # The DynamoRIO client that performs dynamic instrumentation
-add_library(afl-dr SHARED afl-dr.cpp afl-forksrv.cpp)
+add_library(afl-dr SHARED afl-dr.cpp afl-forksrv.cpp module-filter.cpp)
 find_package(DynamoRIO)
 if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
