@@ -25,6 +25,13 @@ static droption_t<bool> opt_disable_prepop(DROPTION_SCOPE_CLIENT, "no-prepop", f
 static int prepop_fd = -1;
 #endif
 
+static bool is_valid_app_pc(app_pc pc) {
+    uint prot;
+    return dr_query_memory(pc, NULL, NULL, &prot) && (prot | DR_MEMPROT_EXEC) &&
+            !dr_memory_is_dr_internal(pc) &&
+            !dr_memory_is_in_client(pc);
+}
+
 void start_forkserver() {
     // For references, see https://lcamtuf.blogspot.ru/2014/10/fuzzing-binaries-without-execve.html
     // and __afl_start_forkserver in llvm_mode/afl-llvm-rt.o.c from AFL sources
@@ -79,11 +86,18 @@ void start_forkserver() {
                 if (res <= 0)
                     break;
 
+                int pc_cnt = 0;
+                for (int i = 0; i < res / sizeof(pcs[0]); ++i) {
+                    if (is_valid_app_pc(pcs[i]))
+                        pcs[pc_cnt++] = pcs[i];
+                }
+                dr_fprintf(STDERR, "Prepop: %d / %d\n", pc_cnt, res / sizeof(pcs[0]));
+
                 // At the time of writing, this is kind of API abuse, see:
                 // https://github.com/DynamoRIO/dynamorio/issues/2463
                 // https://github.com/DynamoRIO/dynamorio/pull/2505
                 void *drcontext = dr_get_current_drcontext(); // Save before dr_prepopulate_cache()
-                dr_prepopulate_cache(pcs, res / sizeof(pcs[0]));
+                dr_prepopulate_cache(pcs, pc_cnt);
                 dr_switch_to_dr_state_ex(drcontext, DR_STATE_GO_NATIVE);
             }
         }
